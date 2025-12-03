@@ -6,57 +6,38 @@ from bs4 import BeautifulSoup
 app = FastAPI()
 
 # ------------------------------------------------
-# 1. BUSCADOR: DuckDuckGo API (JSON estable)
+# 1. BUSCADOR USANDO BRAVE SEARCH API (FUNCIONA EN RENDER)
 # ------------------------------------------------
 @app.get("/search")
 def search(q: str):
     try:
-        api_url = (
-            f"https://api.duckduckgo.com/?q={q}"
-            "&format=json&no_redirect=1&no_html=1"
-        )
+        api_url = f"https://search.brave.com/api/suggest?q={q}"
 
         r = requests.get(api_url, headers={"User-Agent": "Mozilla/5.0"})
         data = r.json()
 
         results = []
 
-        # Resultado principal (si existe)
-        if data.get("AbstractText"):
+        # data[1] = títulos
+        # data[2] = URLs
+        titles = data[1]
+        urls = data[2]
+
+        for title, url in zip(titles, urls):
             results.append({
-                "title": data.get("Heading", "Resultado"),
-                "url": data.get("AbstractURL", ""),
-                "snippet": data.get("AbstractText", "")
+                "title": title,
+                "url": url,
+                "snippet": title
             })
-
-        # Related Topics (lista de resultados)
-        for item in data.get("RelatedTopics", []):
-            # Si es resultado directo
-            if isinstance(item, dict) and "FirstURL" in item:
-                results.append({
-                    "title": item.get("Text", ""),
-                    "url": item.get("FirstURL", ""),
-                    "snippet": item.get("Text", "")
-                })
-
-            # Si está agrupado
-            if "Topics" in item:
-                for sub in item["Topics"]:
-                    results.append({
-                        "title": sub.get("Text", ""),
-                        "url": sub.get("FirstURL", ""),
-                        "snippet": sub.get("Text", "")
-                    })
 
         return {"results": results}
 
     except Exception:
-        raise HTTPException(500, "Error en DuckDuckGo")
+        raise HTTPException(500, "Error en BRAVE")
 
 
 # ------------------------------------------------
-# 2. SCRAPER DE PÁGINAS
-#    Detecta videos dentro del HTML
+# 2. SCRAPER DE PÁGINAS PARA DETECTAR VIDEOS
 # ------------------------------------------------
 @app.get("/scrape")
 def scrape(url: str):
@@ -69,10 +50,9 @@ def scrape(url: str):
 
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # buscar videos en la página
     videos = []
 
-    # Etiquetas <video>
+    # Buscar <video>
     for tag in soup.find_all("video"):
         if tag.get("src"):
             videos.append(tag.get("src"))
@@ -80,14 +60,14 @@ def scrape(url: str):
             if source.get("src"):
                 videos.append(source.get("src"))
 
-    # Links que terminan en video
-    for link in soup.find_all("a"):
-        href = link.get("href", "")
+    # Buscar links a .mp4/.webm
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
         if href.endswith((".mp4", ".webm", ".mov")):
             videos.append(href)
 
-    # Convertir videos para Switch (stream proxy)
-    fixed_videos = [
+    # Convertir videos a streaming proxy
+    fixed = [
         f"https://switchvideo.onrender.com/stream?url={v}"
         for v in videos
     ]
@@ -96,21 +76,18 @@ def scrape(url: str):
 
     return {
         "title": title,
-        "videos": fixed_videos,
+        "videos": fixed,
         "raw_videos": videos
     }
 
 
 # ------------------------------------------------
-# 3. STREAMING PROXY
-#    Convierte cualquier video en uno compatible
+# 3. STREAMING PROXY PARA QUE SWITCH PUEDA VER LOS VIDEOS
 # ------------------------------------------------
 @app.get("/stream")
 def stream(url: str):
-    headers = {"User-Agent": "Mozilla/5.0"}
-
     try:
-        r = requests.get(url, headers=headers, stream=True)
+        r = requests.get(url, stream=True)
     except:
         raise HTTPException(400, "Video no accesible")
 
@@ -120,8 +97,6 @@ def stream(url: str):
     )
 
 
-# Estado del servidor
 @app.get("/")
 def home():
     return {"status": "ok"}
-
