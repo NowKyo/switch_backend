@@ -2,10 +2,10 @@ from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import requests
+from bs4 import BeautifulSoup
 
 app = FastAPI()
 
-# Permitir CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,9 +14,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BRAVE_KEY = "brave_rkkf_1f2be8e6b1e07..."  # Ya te puse esta key temporal
-BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
-
 @app.get("/")
 async def root():
     return {"status": "ok"}
@@ -24,35 +21,30 @@ async def root():
 @app.get("/search")
 async def search(q: str = Query(..., min_length=1)):
     """
-    Busca en Brave Search y regresa solo videos.
+    Busca videos usando Bing (scraping sin API key).
     """
     try:
+        url = f"https://www.bing.com/videos/search?q={q}&FORM=HDRSC3"
         headers = {
-            "Accept": "application/json",
-            "X-Subscription-Token": BRAVE_KEY
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"
         }
 
-        params = {
-            "q": q + " video",
-            "source": "web"
-        }
-
-        r = requests.get(BRAVE_URL, headers=headers, params=params, timeout=10)
-        data = r.json()
+        page = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(page.text, "html.parser")
 
         results = []
 
-        if "web" in data and "results" in data["web"]:
-            for item in data["web"]["results"]:
-                url = item.get("url", "")
-                title = item.get("title", "")
+        for vid in soup.select("div.mc_vtvc_title a"):
+            title = vid.get_text(strip=True)
+            link = vid.get("href")
 
-                # Aceptamos videos comunes de internet
-                if any(x in url for x in ["youtube.com", "youtu.be", "mp4", "video"]):
-                    results.append({
-                        "title": title,
-                        "url": url
-                    })
+            if not link.startswith("http"):
+                link = "https://www.bing.com" + link
+
+            results.append({
+                "title": title,
+                "url": link
+            })
 
         return results
 
